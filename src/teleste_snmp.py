@@ -60,19 +60,19 @@ def parse_values(data):
         val = data[index]
         out_list.append(val)
 
-    return(out_list)
+    return out_list
 
 
-def walk_tasklist(ip,community,collect_tasks):
+def walk_tasklist(ip, community, collect_tasks):
     community = CommunityData(community)
     snmp_engine = SnmpEngine()
-    target = UdpTransportTarget((ip, 161),timeout=5,retries=3)
+    target = UdpTransportTarget((ip, 161), timeout=5, retries=3)
 
     collected_data = dict()
 
-    for (task_oid,task_data_key,task_format) in collect_tasks:
+    for (task_oid, task_data_key, task_format) in collect_tasks:
         # print ("Colleting: %s" % task_data_key )
-        for (error,index,value) in walk(snmp_engine,target,community,task_oid):
+        for (error, index, value) in walk(snmp_engine, target, community, task_oid):
             if error:
                 return False,error
 
@@ -80,92 +80,88 @@ def walk_tasklist(ip,community,collect_tasks):
             try:
                 collected_data[index][task_data_key] = task_format(value)
             except KeyError:
-                collected_data[index] = { task_data_key: task_format(value) }
+                collected_data[index] = {task_data_key: task_format(value)}
 
-    return collected_data,None
+    return collected_data, None
 
 
 def proetheus_analyser_labels(current_data_row):
     label_list = [ 
-        ('spectrumAnalyserIndex',current_data_row[0]),
-        ('spectrumAnalyserType',current_data_row[1]),
+        ('spectrumAnalyserIndex', current_data_row[0]),
+        ('spectrumAnalyserType', current_data_row[1]),
         ('spectrumAnalyserChannelTable', current_data_row[2]),
-        ('spectrumAnalyserChannelTableHz', int(current_data_row[2] * 1000000) ),
+        ('spectrumAnalyserChannelTableHz', int(current_data_row[2] * 1000000)),
     ]
 
-    return ",".join(["%s=\"%s\"" % (label,value) for (label,value) in label_list])
+    return ",".join(["%s=\"%s\"" % (label, value) for (label, value) in label_list])
 
 
-def prometheus_metrics(teleste_data,metric_name,value_index):
+def prometheus_metrics(teleste_data, metric_name, value_index):
     # Iterate over each index.
-    for current_index,v in teleste_data.items():
+    for current_index, v in teleste_data.items():
 
         # Zip the Frequency, measured level, type  and the threshold limits.
         # Per measured frequency.
-        analyser_channel_table = zip (
+        analyser_channel_table = zip(
             # Limit repeats, to preven accidental infinte blowup.
-            repeat(current_index,times=100),
-            repeat(v['type_table'],times=100),
+            repeat(current_index, times=100),
+            repeat(v['type_table'], times=100),
             v['channel_table'],
             v['value_table'],
-#            v['lolo_limit'],v['lo_limit'],v['hi_limit'],v['hihi_limit'],
+            # v['lolo_limit'],v['lo_limit'],v['hi_limit'],v['hihi_limit'],
         )
 
         for current_data_row in analyser_channel_table:
-            yield ("%s{%s} %s" % (metric_name,proetheus_analyser_labels(current_data_row),current_data_row[value_index]))
+            yield ("%s{%s} %s" % (
+                metric_name,
+                proetheus_analyser_labels(current_data_row),
+                current_data_row[value_index]
+            ))
 
 
 def teleste_tasklist():
     # Teleste OIDS
-    spectrumAnalyserType                = (1,3,6,1,4,1,3715,100,2,10,1,2)
-    spectrumAnalyserChannelTable        = (1,3,6,1,4,1,3715,100,2,10,1,6)
-    spectrumAnalyserValueTable          = (1,3,6,1,4,1,3715,100,2,10,1,8)
-    spectrumAnalyserChannelTableName    = (1,3,6,1,4,1,3715,100,2,10,1,5)
-#    spectrumAnalyserHIHILimitTable      = (1,3,6,1,4,1,3715,100,2,10,1,9)
-#    spectrumAnalyserHiLimitTable        = (1,3,6,1,4,1,3715,100,2,10,1,10)
-#    spectrumAnalyserLoLimitTable        = (1,3,6,1,4,1,3715,100,2,10,1,11)
-#    spectrumAnalyserLOLOLimitTable      = (1,3,6,1,4,1,3715,100,2,10,1,12)
+    spectrumAnalyserEntry = (1, 3, 6, 1, 4, 1, 3715, 100, 2, 10, 1)
+    spectrumAnalyserType = spectrumAnalyserEntry + (2,)
+    spectrumAnalyserChannelTable = spectrumAnalyserEntry + (6,)
+    spectrumAnalyserValueTable = spectrumAnalyserEntry + (8,)
+    # spectrumAnalyserChannelTableName = spectrumAnalyserEntry + (5,)
+    # spectrumAnalyserHIHILimitTable = spectrumAnalyserEntry +  (9,)
+    # spectrumAnalyserHiLimitTable = spectrumAnalyserEntry +  (10,)
+    # spectrumAnalyserLoLimitTable = spectrumAnalyserEntry +  (11,)
+    # spectrumAnalyserLOLOLimitTable = spectrumAnalyserEntry +  (12,)
 
     collect_tasks = [
-        [ spectrumAnalyserType, 'type_table', lambda x: str(x)] ,
-        [ spectrumAnalyserChannelTable, 'channel_table', lambda x: parse_frequencies(x) ],
-        [ spectrumAnalyserValueTable, 'value_table', lambda x: parse_values(x) ],
+        [spectrumAnalyserType, 'type_table', lambda x: str(x)],
+        [spectrumAnalyserChannelTable, 'channel_table', lambda x: parse_frequencies(x)],
+        [spectrumAnalyserValueTable, 'value_table', lambda x: parse_values(x)],
+
         # Thresholds
-#        [ spectrumAnalyserLOLOLimitTable, 'lolo_limit', lambda x: parse_values(x) ],
-#        [ spectrumAnalyserLoLimitTable, 'lo_limit', lambda x: parse_values(x) ],
-#        [ spectrumAnalyserHiLimitTable, 'hi_limit', lambda x: parse_values(x) ],
-#        [ spectrumAnalyserHIHILimitTable, 'hihi_limit', lambda x: parse_values(x) ],
-       ]
+        # [spectrumAnalyserLOLOLimitTable, 'lolo_limit', lambda x: parse_values(x)],
+        # [spectrumAnalyserLoLimitTable, 'lo_limit', lambda x: parse_values(x)],
+        # [spectrumAnalyserHiLimitTable, 'hi_limit', lambda x: parse_values(x)],
+        # [spectrumAnalyserHIHILimitTable, 'hihi_limit', lambda x: parse_values(x)],
+    ]
 
     return collect_tasks
 
+
 def poll_teleste():
-    teleste_data,error = walk_tasklist('172.16.22.86','public',teleste_tasklist())
+    teleste_data, error = walk_tasklist(
+        '172.16.22.86',
+        'public',
+        teleste_tasklist()
+    )
 
     if error:
         print(error)
         exit()
 
-    print ("# HELP Unit of level in spectrumAnalyserValueTable and limit tables is 0.5 dBuV")
-    print ("# TYPE gauge")
-    print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserValueTable', 3)))
-    #print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserLOLOLimitTable', 4)))
-    #print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserLoLimitTable', 5)))
-    #print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserHiLimitTable', 6)))
-    #print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserHIHILimitTable', 7)))
+    print("# HELP Unit of level in spectrumAnalyserValueTable and limit tables is 0.5 dBuV")
+    print("# TYPE gauge")
+    print('\n'.join(prometheus_metrics(teleste_data, 'spectrumAnalyserValueTable', 3)))
+    # print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserLOLOLimitTable', 4)))
+    # print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserLoLimitTable', 5)))
+    # print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserHiLimitTable', 6)))
+    # print('\n'.join(prometheus_metrics(teleste_data,'spectrumAnalyserHIHILimitTable', 7)))
     print()
-
-
-
-
-# MAIN  not used anyore, this is a module for external usage.
-if __name__ == "__main__":
-    poll_teleste()
-
-
-
-
-
-
-
-
